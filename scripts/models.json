@@ -1,0 +1,7 @@
+{
+  "halcon_procedures_folder_path": "C:\\Progetti\\fm-utilities",
+  "external_filter_model_path": "C:\\Progetti\\Copan\\9248-copan-newlab\\copan_border\\notebook\\training\\checkpoints\\best_model-v17.ckpt",
+  "internal_filter_model_path": "C:\\Progetti\\Copan\\9248-copan-newlab\\copan_border\\notebook\\training\\checkpoints\\best_model-v14.ckpt",
+  "images_path": "C:\\Progetti\\PLATE\\validazione_3\\PLATE\\123\\PLATE_01035730265999801725100710101095324021064947_90_001_T{}_F1400B0_B_L.png",
+  "outputs_path": "C:\\Progetti\\PLATE\\validazione_3\\PLATE\\123\\{}.png"
+}
