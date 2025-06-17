@@ -50,6 +50,7 @@ class SegmentationDataset(Dataset):
 
         # Apply transformations
         if self.add_transform:
+            # Apply geometric transforms to both image and mask
             augmented = self.add_transform(image=image, mask=mask)
             image = augmented["image"]
             mask = augmented["mask"]

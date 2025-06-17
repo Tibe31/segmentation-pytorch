@@ -17,9 +17,14 @@ class SegmentationDataModule(pl.LightningDataModule):
         self.size = resize_size
 
     def get_training_augmentation(self):
-        train_transforms = [
+        # Transforms that should be applied to both image and mask
+        geometric_transforms = [
+            albu.HorizontalFlip(p=0.9),  # Enable horizontal flip
+        ]
+        
+        # Transforms that should be applied only to images
+        image_only_transforms = [
             albu.GaussNoise(p=0.3),
-            albu.HorizontalFlip(p=0.5),
             albu.OneOf(
                 [
                     albu.RandomBrightnessContrast(p=0.6),
@@ -33,7 +38,10 @@ class SegmentationDataModule(pl.LightningDataModule):
             ),
             albu.RandomFog(alpha=0.03, p=0.2),
         ]
-        return albu.Compose(train_transforms)
+        
+        # Combine transforms: geometric first, then image-only
+        train_transforms = geometric_transforms + image_only_transforms
+        return albu.Compose(train_transforms, additional_targets={'mask': 'mask'})
 
     def load_image_mask_path(self, txt_file: str, train=False):
         with open(self.txt_folder / txt_file, "r") as file:
@@ -41,7 +49,7 @@ class SegmentationDataModule(pl.LightningDataModule):
             lines = file.readlines()
         image_path = [path.strip() for path in lines]
 
-        mask_path = [path.replace("/images", "/masks").strip() for path in image_path]
+        mask_path = [path.replace("\\images\\", "\\masks\\").replace("/images/", "/masks/").strip() for path in image_path]
         return image_path, mask_path
 
     def setup(self, stage=None):
