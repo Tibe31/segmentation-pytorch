@@ -1,9 +1,9 @@
 [project]
-name = "segmentation-pytorch"
+name = "src"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Andre Tiberti"}
+    {name = "Andrea Tiberti"}
 ]
 readme = "README.md"
 requires-python = ">=3.10,<4.0"
@@ -18,9 +18,9 @@ dependencies = [
     "neptune (>=1.13.0,<2.0.0)",
     "comet-ml (>=3.49.5,<4.0.0)",
     "notebook (>=7.4.0,<8.0.0)",
-    #"torch (>=2.6.0,<3.0.0)",
-    #"torchvision (>=0.21.0,<0.22.0)",
-    #"torchaudio (>=2.6.0,<3.0.0)",
+    "torch (>=2.6.0,<3.0.0)",
+    "torchvision (>=0.21.0,<0.22.0)",
+    "torchaudio (>=2.6.0,<3.0.0)",
     "line-profiler-pycharm (>=1.2.0,<2.0.0)",
     "python-dotenv (>=1.1.0,<2.0.0)",
 ]
@@ -30,13 +30,13 @@ dependencies = [
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
-#[[tool.poetry.source]]
-#name = "pytorch-gpu"
-#url = "https://download.pytorch.org/whl/cu126"
-#priority = "explicit"
+[[tool.poetry.source]]
+name = "pytorch-gpu"
+url = "https://download.pytorch.org/whl/cu126"
+priority = "explicit"
 
 
-#[tool.poetry.dependencies]
-#torch = {source = "pytorch-gpu"}
-#torchvision = {source = "pytorch-gpu"}
-#torchaudio = {source = "pytorch-gpu"}
+[tool.poetry.dependencies]
+torch = {source = "pytorch-gpu"}
+torchvision = {source = "pytorch-gpu"}
+torchaudio = {source = "pytorch-gpu"}
