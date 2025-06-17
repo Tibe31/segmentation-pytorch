@@ -6,16 +6,17 @@ from PIL import Image
 
 
 class SegmentationDataset(Dataset):
-    def __init__(self, image_name, mask_name, transform=None):
+    def __init__(self, image_name, mask_name, transform=None, image_size=(512, 512)):
         """
         Args:
-            image_dir (str): Directory with all the input images.
-            mask_dir (str): Directory with all the segmentation masks.
+            image_name (list): List of image file paths.
+            mask_name (list): List of mask file paths.
             transform (callable, optional): A function/transform to apply to both image and mask.
+            image_size (tuple): Size to resize images and masks to (width, height).
         """
         self.image_name = image_name
         self.mask_name = mask_name
-        self.size = (512, 512)
+        self.size = image_size
         self.image_transform = transforms.Compose(
             [
                 transforms.ToTensor(),

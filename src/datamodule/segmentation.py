@@ -41,7 +41,7 @@ class SegmentationDataModule(pl.LightningDataModule):
             lines = file.readlines()
         image_path = [path.strip() for path in lines]
 
-        mask_path = [path.replace("/images_", "/masks_").strip() for path in image_path]
+        mask_path = [path.replace("/images", "/masks").strip() for path in image_path]
         return image_path, mask_path
 
     def setup(self, stage=None):
@@ -50,10 +50,10 @@ class SegmentationDataModule(pl.LightningDataModule):
         val_paths, val_labels = self.load_image_mask_path("val.txt")
         test_paths, test_labels = self.load_image_mask_path("test.txt")
         self.train_dataset = SegmentationDataset(
-            train_paths, train_labels, self.get_training_augmentation()
+            train_paths, train_labels, self.get_training_augmentation(), self.resize_size
         )
-        self.val_dataset = SegmentationDataset(val_paths, val_labels, None)
-        self.test_dataset = SegmentationDataset(test_paths, test_labels, None)
+        self.val_dataset = SegmentationDataset(val_paths, val_labels, None, self.resize_size)
+        self.test_dataset = SegmentationDataset(test_paths, test_labels, None, self.resize_size)
 
     def train_dataloader(self):
         """Return the train dataloader"""
@@ -61,8 +61,8 @@ class SegmentationDataModule(pl.LightningDataModule):
             self.train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=8,
-            persistent_workers=True,
+            num_workers=2,
+            persistent_workers=True, #False se num_workers=0, True altrimenti
         )
 
     def val_dataloader(self):
@@ -71,12 +71,12 @@ class SegmentationDataModule(pl.LightningDataModule):
             self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=8,
+            num_workers=2,
             persistent_workers=True,
         )
 
     def test_dataloader(self):
         """Return the test dataloader"""
         return DataLoader(
-            self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=8
+            self.test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=2
         )

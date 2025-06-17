@@ -18,7 +18,7 @@ if __name__ == "__main__":
     #)
     model = SegmentationModels("fpn", "resnet34", in_channels=3, out_classes=1)
     data_module = SegmentationDataModule(
-        txt_split="dataset_creation", batch_size=4, resize_size=(512, 512)
+        txt_split="dataset_creation", batch_size=1, resize_size=(256, 256)
     )
     checkpoint_callback = ModelCheckpoint(
         monitor="valid_loss",  # The metric to monitor
