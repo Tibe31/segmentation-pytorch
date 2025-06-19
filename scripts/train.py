@@ -15,8 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pytorch_lightning.loggers import CometLogger
 from pathlib import Path
-# Import split_dataset and load_config from split_dataset.py
-from scripts.split_dataset import split_dataset, load_config
+from src.segmentation.utils.dataset_utils import split_dataset, load_config
 
 load_dotenv(find_dotenv())
 
