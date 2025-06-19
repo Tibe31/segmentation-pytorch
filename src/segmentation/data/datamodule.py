@@ -1,4 +1,5 @@
 import os
+import glob
 
 import pytorch_lightning as pl
 import albumentations as albu
@@ -11,16 +12,15 @@ from src.segmentation.data.dataset import SegmentationDataset
 class SegmentationDataModule(pl.LightningDataModule):
     """
     PyTorch Lightning DataModule for segmentation tasks.
-    Handles data loading, augmentation, and dataloader creation for train/val/test splits.
+    Loads data from train/val/test folders, each containing images/ and masks/ subfolders.
+    Handles data loading, augmentation, and dataloader creation for each split.
     """
     def __init__(self, config):
         """
         Initialize the DataModule from a configuration dictionary.
         Args:
             config (dict): Configuration dictionary containing:
-                - data.splits_dir: Path to the folder containing split .txt files
-                - data.images_dir: Directory containing input images
-                - data.masks_dir: Directory containing mask images
+                - data.splits_dir: Path to the folder containing split folders (train/val/test)
                 - training.batch_size: Batch size for dataloaders
                 - model.input_size: (height, width) for resizing images and masks
                 - augmentation: List of augmentation configs (optional)
@@ -29,15 +29,11 @@ class SegmentationDataModule(pl.LightningDataModule):
         # Make splits_dir absolute if not already
         splits_dir = config['data']['splits_dir']
         if not os.path.isabs(splits_dir):
-            # Calcola la root del progetto rispetto a questo file
             project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
             splits_dir = os.path.abspath(os.path.join(project_root, splits_dir))
-        self.txt_folder = Path(splits_dir)
-        self.images_dir = config['data']['images_dir']
-        self.masks_dir = config['data']['masks_dir']
+        self.splits_dir = Path(splits_dir)
         self.batch_size = config['training']['batch_size']
         self.resize_size = tuple(config['model']['input_size'])
-        self.size = self.resize_size
         self.augmentation_config = config.get('augmentation', None)
         self.num_workers = config['training'].get('num_workers', 2)
 
@@ -50,10 +46,8 @@ class SegmentationDataModule(pl.LightningDataModule):
             albumentations.Compose: The composed augmentation pipeline.
         """
         def build_transform(transform_cfg):
-            # Mapping string name to albumentations class
             name = transform_cfg['name']
             if name == 'OneOf':
-                # Recursive for OneOf
                 transforms = [build_transform(t) for t in transform_cfg['transforms']]
                 p = transform_cfg.get('p', 0.5)
                 return albu.OneOf(transforms, p=p)
@@ -62,16 +56,12 @@ class SegmentationDataModule(pl.LightningDataModule):
                 p = transform_cfg.get('p', 1.0)
                 return albu.Compose(transforms, p=p)
             else:
-                # Get the class from albumentations
                 cls = getattr(albu, name)
                 params = {k: v for k, v in transform_cfg.items() if k != 'name' and k != 'transforms'}
                 return cls(**params)
 
         if self.augmentation_config is None:
-            # Default pipeline
-            geometric_transforms = [
-                albu.HorizontalFlip(p=0.9),
-            ]
+            geometric_transforms = [albu.HorizontalFlip(p=0.9)]
             image_only_transforms = [
                 albu.GaussNoise(p=0.3),
                 albu.OneOf([
@@ -88,27 +78,22 @@ class SegmentationDataModule(pl.LightningDataModule):
             transforms_list = [build_transform(t) for t in self.augmentation_config]
             return albu.Compose(transforms_list, additional_targets={'mask': 'mask'})
 
-    def load_split_filenames(self, txt_file):
+    def load_split_filenames(self, split_folder):
         """
-        Load image and mask file paths from a split .txt file.
-        Each line in the txt file should contain the full path to the image.
-        The mask path is constructed using the same filename in the masks_dir.
+        Load image and mask file paths from a split folder (images/ and masks/).
         Args:
-            txt_file (str): Name of the split file (e.g., 'train.txt').
+            split_folder (str): Name of the split folder (e.g., 'train', 'val', 'test').
         Returns:
             tuple: (list of image paths, list of mask paths)
         """
-        with open(self.txt_folder / txt_file, "r") as file:
-            lines = file.readlines()
-        image_paths = [line.strip() for line in lines]
-        mask_paths = []
-        for img_path in image_paths:
-            filename = os.path.basename(img_path)
-            mask_path = os.path.join(self.masks_dir, filename)
-            if not os.path.exists(mask_path):
-                raise FileNotFoundError(f"Mask not found for image {img_path}: expected {mask_path}")
-            mask_paths.append(mask_path)
-        return image_paths, mask_paths
+        images_path = os.path.join(self.splits_dir, split_folder, 'images')
+        masks_path = os.path.join(self.splits_dir, split_folder, 'masks')
+        image_files = sorted(glob.glob(os.path.join(images_path, '*.png')))
+        mask_files = [os.path.join(masks_path, os.path.basename(f)) for f in image_files]
+        for m in mask_files:
+            if not os.path.exists(m):
+                raise FileNotFoundError(f"Mask not found: {m}")
+        return image_files, mask_files
 
     def setup(self, stage=None):
         """
@@ -117,9 +102,9 @@ class SegmentationDataModule(pl.LightningDataModule):
         Args:
             stage (str or None): Stage to set up (unused, for Lightning compatibility).
         """
-        train_paths, train_labels = self.load_split_filenames("train.txt")
-        val_paths, val_labels = self.load_split_filenames("val.txt")
-        test_paths, test_labels = self.load_split_filenames("test.txt")
+        train_paths, train_labels = self.load_split_filenames("train")
+        val_paths, val_labels = self.load_split_filenames("val")
+        test_paths, test_labels = self.load_split_filenames("test")
         self.train_dataset = SegmentationDataset(
             train_paths, train_labels, self.get_training_augmentation(), self.resize_size
         )
@@ -137,7 +122,7 @@ class SegmentationDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            persistent_workers=True, # False if num_workers=0, True otherwise
+            persistent_workers=True,
         )
 
     def val_dataloader(self):

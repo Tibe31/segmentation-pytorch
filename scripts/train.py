@@ -15,6 +15,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pytorch_lightning.loggers import CometLogger
 from pathlib import Path
+# Import split_dataset and load_config from split_dataset.py
+from scripts.split_dataset import split_dataset, load_config
 
 load_dotenv(find_dotenv())
 
@@ -81,13 +83,27 @@ def show_augmentation_samples(data_module):
 def main():
     """
     Main training entrypoint.
-    Loads configuration, initializes model and data module, shows augmentation samples,
+    Loads configuration, checks and performs dataset split if needed, initializes model and data module, shows augmentation samples,
     sets up checkpointing and trainer, and starts training.
     """
-    # Calcola il path assoluto del config
+    # Compute absolute path to config
     config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'configs', 'config.yaml'))
     config = load_config(config_path)
-    
+
+    # --- Check if dataset is already split, otherwise perform split ---
+    splits_dir = config['data']['splits_dir']
+    # Check for train/val/test folders with images/ and masks/
+    required_folders = [
+        os.path.join(splits_dir, split, sub)
+        for split in ['train', 'val', 'test']
+        for sub in ['images', 'masks']
+    ]
+    if not all(os.path.isdir(folder) for folder in required_folders):
+        print("Split folders not found. Running dataset split...")
+        split_dataset(config)
+    else:
+        print("Split folders found. Skipping dataset split.")
+
     # Model configuration
     model_cfg = config['model']
     model = SegmentationModels(
@@ -96,15 +112,15 @@ def main():
         in_channels=model_cfg.get('in_channels', 3),
         out_classes=model_cfg.get('out_classes', 1)
     )
-    
+
     # Initialize DataModule with entire config
     data_module = SegmentationDataModule(config)
-    
+
     # Show augmentation samples before training
     if config.get('show_augmentation_samples', True):
         print("Showing augmentation samples...")
         show_augmentation_samples(data_module)
-    
+
     # Checkpoint callback configuration
     output_cfg = config['output']
     checkpoint_callback = ModelCheckpoint(
@@ -115,7 +131,7 @@ def main():
         mode=output_cfg.get('mode', 'min'),
         verbose=True,
     )
-    
+
     # Trainer configuration
     trainer_cfg = config['training']
     trainer = pl.Trainer(
@@ -123,12 +139,12 @@ def main():
         callbacks=[checkpoint_callback],
         # logger=comet_logger if needed
     )
-    
+
     # Train the model
     trainer.fit(model, datamodule=data_module)
 
 if __name__ == "__main__":
     """
-    Entrypoint for training. Loads config and starts the training pipeline.
+    Entrypoint for training. Loads config, checks dataset split, and starts the training pipeline.
     """
     main()
