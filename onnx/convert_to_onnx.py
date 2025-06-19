@@ -46,6 +46,7 @@ Get the underlying torch.nn.Module from the Lightning model for ONNX export.
 """
 torch_model = lightning_model.model
 torch_model.eval()
+torch_model.to(DEVICE)
 
 # === Prepare dummy input ===
 """
