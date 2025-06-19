@@ -4,3 +4,5 @@ src/__pycache__/*
 src/datamodule/__pycache__/*
 src/dataset/__pycache__/*
 src/model/__pycache__/*
+dataset_creation/*
+onnx/onnx_outputs/*
