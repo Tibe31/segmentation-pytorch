@@ -67,6 +67,13 @@ augmentation:
     p: 0.8
   - name: Blur
     p: 0.5
+  - name: Affine
+    rotate: [-5, 5]
+    scale: [0.95, 1.05]
+    translate_percent:
+      x: [-0.03, 0.03]
+      y: [-0.03, 0.03]
+    p: 0.2
   - name: GridDropout
     p: 0.2
     ratio: 0.3
