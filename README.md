@@ -1,6 +1,6 @@
 # BINARY SEGMENTATION USING PYTORCH
 
-This repository contains code for training, inference, and analysis of binary segmentation models (e.g., for detecting growth on filter plates) using PyTorch Lightning.
+This repository contains code for training, inference, and analysis of binary segmentation models (e.g., for detecting growth on filter plates) using PyTorch Lightning. It is also possible to export trained model to onnx and execute predictions on it. 
 
 ## Project Structure
 
