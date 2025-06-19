@@ -1,5 +1,0 @@
-{
-  "model_path": "C:\\Users\\DL\\Desktop\\segmentation-pytorch\\notebook\\training\\checkpoints\\best_model-v2.ckpt",
-  "images_path": "C:\\Users\\DL\\Desktop\\segmentation-pytorch\\1870_images_test_seg",
-  "outputs_path": "C:\\Users\\DL\\Desktop\\output_1870_images_test_seg"
-}
