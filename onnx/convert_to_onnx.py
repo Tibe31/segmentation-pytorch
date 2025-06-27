@@ -8,23 +8,29 @@ import yaml
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.segmentation.models.unet import SegmentationModels
+from src.segmentation.utils.dataset_utils import load_config
 
-# === CONFIG ===
-ENCODER = "resnet34"
-ENCODER_WEIGHTS = "imagenet"
-ARCH = "fpn"
-DEVICE = "cpu"  # or "cuda" if you want
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # === Read model dimensions from config YAML ===
-CONFIG_PATH = '../configs/config.yaml'
-with open(CONFIG_PATH, 'r') as f:
-    config = yaml.safe_load(f)
-resize = config['model']['input_size']
+CONFIG_PATH = os.path.join(project_root, 'configs', 'config.yaml')
+config = load_config(CONFIG_PATH)
+
+# Get model parameters from config
+model_cfg = config['model']
+ENCODER = model_cfg.get('backbone', 'resnet34')
+ARCH = model_cfg.get('architecture', 'fpn')
+IN_CHANNELS = model_cfg.get('in_channels', 3)
+
+ENCODER_WEIGHTS = "imagenet"
+DEVICE = "cpu"  # or "cuda" if you want
+
+resize = model_cfg['input_size']
 TARGET_HEIGHT, TARGET_WIDTH = resize
-ONNX_MODEL_NAME = f"unet_resnet34_{TARGET_HEIGHT}x{TARGET_WIDTH}_fixed.onnx"
+ONNX_MODEL_NAME = os.path.join(project_root, 'onnx', f"unet_resnet34_{TARGET_HEIGHT}x{TARGET_WIDTH}_fixed.onnx")
 
 # === Load Lightning model checkpoint path from config ===
-ckpt_path = config['inference']['model_path']
+ckpt_path = os.path.join(project_root, config['inference']['model_path'])
 
 # === Load LightningModule ===
 """
@@ -34,7 +40,7 @@ lightning_model = SegmentationModels.load_from_checkpoint(
     ckpt_path,
     arch=ARCH,
     encoder_name=ENCODER,
-    in_channels=3,
+    in_channels=IN_CHANNELS,
     out_classes=1,
     activation="sigmoid"
 )
