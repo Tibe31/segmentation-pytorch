@@ -53,9 +53,6 @@ def run_inference(chunks, batch_size, model, resize_size):
         with torch.no_grad():
             output = model(batch_tensor.to(device))
         output = output.sigmoid()
-        output = F.interpolate(
-            output, size=(resize_size[0], resize_size[1]), mode="bilinear", align_corners=False
-        )
         if len(output.shape) == 4:
             output_binary = output[:, 0].cpu().numpy()
         elif len(output.shape) == 3:
