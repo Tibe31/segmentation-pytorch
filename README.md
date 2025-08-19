@@ -54,7 +54,38 @@ python onnx/convert_to_onnx.py
 ```
 
 ## Inference
-See `onnx/onnx_predict.py` for ONNX inference or use the provided scripts for PyTorch inference.
+
+### PyTorch Inference
+
+To run inference with a trained PyTorch model (`.ckpt`), use the `scripts/predict.py` script.
+
+First, ensure your `configs/config.yaml` is configured correctly. The script will load the model and paths from the `inference` section of this file:
+
+```yaml
+inference:
+  model_path: "checkpoints/best_model.ckpt" # Path to your .ckpt model
+  input_images_dir: "path/to/your/images"   # Directory with images for batch mode
+  outputs_dir: "path/to/save/predictions"  # Directory to save the output masks
+```
+
+**Batch Mode (Default):**
+To predict masks for all images in the `input_images_dir` specified in your config. This is the default mode, so you can run it without specifying `--mode`.
+```bash
+python scripts/predict.py
+```
+Or explicitly:
+```bash
+python scripts/predict.py --mode batch
+```
+
+**Single Image Mode:**
+To predict a mask for a single image, specify its path using the `--image` argument:
+```bash
+python scripts/predict.py --mode single --image "path/to/your/single_image.png"
+```
+
+### ONNX Inference
+See `onnx/onnx_predict.py` for ONNX inference.
 
 ## Notes
 - The code expects mask filenames to match image filenames.
