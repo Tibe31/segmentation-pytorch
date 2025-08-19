@@ -7,17 +7,10 @@ if project_root not in sys.path:
 
 import yaml
 import pytorch_lightning as pl
-from dotenv import load_dotenv, find_dotenv
 from pytorch_lightning.callbacks import ModelCheckpoint
 from src.segmentation.models.unet import SegmentationModels
 from src.segmentation.data.datamodule import SegmentationDataModule
-import matplotlib.pyplot as plt
-import numpy as np
-from pytorch_lightning.loggers import CometLogger
-from pathlib import Path
 from src.segmentation.utils.dataset_utils import split_dataset, load_config, show_augmentation_samples
-
-load_dotenv(find_dotenv())
 
 def load_config(config_path):
     """
