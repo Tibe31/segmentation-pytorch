@@ -8,7 +8,7 @@ if project_root not in sys.path:
 import yaml
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from src.segmentation.models.unet import SegmentationModels
+from src.segmentation.models.unet import SegmentationModel
 from src.segmentation.data.datamodule import SegmentationDataModule
 from src.segmentation.utils.dataset_utils import split_dataset, load_config, show_augmentation_samples
 
@@ -50,11 +50,12 @@ def main():
 
     # Model configuration
     model_cfg = config['model']
-    model = SegmentationModels(
-        model_cfg.get('architecture', 'fpn'),
-        model_cfg.get('backbone', 'resnet34'),
+    model = SegmentationModel(
+        arch=model_cfg.get('architecture', 'fpn'),
+        encoder_name=model_cfg.get('backbone', 'resnet34'),
         in_channels=model_cfg.get('in_channels', 3),
-        out_classes=model_cfg.get('out_classes', 1)
+        out_classes=model_cfg.get('out_classes', 1),
+        learning_rate=config['training'].get('lr', 1e-3),
     )
 
     # Initialize DataModule with entire config
@@ -81,7 +82,7 @@ def main():
     trainer = pl.Trainer(
         max_epochs=trainer_cfg.get('epochs', 550),
         callbacks=[checkpoint_callback],
-        # logger=comet_logger if needed
+        logger=False,  # disable default Lightning logger (prevents creating lightning_logs/)
     )
 
     # Train the model

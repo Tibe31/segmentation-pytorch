@@ -4,7 +4,7 @@ import yaml
 # Add the project root to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.segmentation.models.unet import SegmentationModels
+from src.segmentation.models.unet import SegmentationModel
 
 """
 Utility functions for segmentation model loading and configuration.
@@ -17,7 +17,7 @@ def load_torch_model(config_path="configs/config.yaml"):
         config_path (str): Path to the YAML configuration file.
     Returns:
         tuple: (model, images_path, outputs_path)
-            model (SegmentationModels): Loaded PyTorch Lightning model (in eval mode)
+            model (SegmentationModel): Loaded PyTorch Lightning model (in eval mode)
             images_path (str): Directory containing input images for inference
             outputs_path (str): Directory to save output predictions
     """
@@ -28,7 +28,7 @@ def load_torch_model(config_path="configs/config.yaml"):
     model_cfg = config["model"]
     inference_cfg = config["inference"]
 
-    model = SegmentationModels.load_from_checkpoint(
+    model = SegmentationModel.load_from_checkpoint(
         inference_cfg["model_path"],
         arch=model_cfg.get("architecture", "fpn"),
         encoder_name=model_cfg.get("backbone", "resnet34"),
