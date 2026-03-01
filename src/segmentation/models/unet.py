@@ -1,14 +1,91 @@
-import torch
+"""Binary semantic segmentation module built on segmentation_models_pytorch.
+
+This module provides :class:`SegmentationModel`, a PyTorch Lightning wrapper
+that pairs any encoder-decoder architecture from the
+`segmentation_models_pytorch <https://github.com/qubvel/segmentation_models.pytorch>`_
+library with Dice loss and IoU metric tracking.  It is designed for
+**binary** segmentation tasks (single foreground class).
+
+Typical usage::
+
+    from src.segmentation.models.unet import SegmentationModel
+
+    model = SegmentationModel(
+        arch="unet",
+        encoder_name="resnet34",
+        in_channels=3,
+        out_classes=1,
+        learning_rate=1e-3,
+    )
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
 import pytorch_lightning as pl
 import segmentation_models_pytorch as smp
+import torch
+from torch import Tensor
+
+__all__ = ["SegmentationModel"]
+
+_ENCODER_DOWNSCALE_FACTOR = 32
+"""int: Typical encoders have 5 down-sampling stages (2^5 = 32), so spatial
+dimensions must be divisible by this factor to allow skip-connection
+concatenation between encoder and decoder."""
+
+_DEFAULT_THRESHOLD = 0.5
+"""float: Probability threshold applied after sigmoid to binarise predicted
+masks for metric computation."""
 
 
-class SegmentationModels(pl.LightningModule):
-    def __init__(self, arch, encoder_name, in_channels, out_classes, **kwargs):
+class SegmentationModel(pl.LightningModule):
+    """PyTorch Lightning module for binary semantic segmentation.
+
+    Wraps any architecture provided by *segmentation_models_pytorch*,
+    computes Dice loss, and tracks per-image and dataset-level IoU metrics
+    across training and validation epochs.
+
+    All constructor arguments are persisted via
+    :meth:`~pytorch_lightning.LightningModule.save_hyperparameters` and are
+    therefore available under ``self.hparams`` and automatically restored by
+    :meth:`load_from_checkpoint`.
+
+    Attributes:
+        model (torch.nn.Module): The underlying encoder-decoder network
+            created by ``smp.create_model``.
+        loss_fn (smp.losses.DiceLoss): Dice loss function operating on raw
+            logits (``from_logits=True``).
+    """
+
+    def __init__(
+        self,
+        arch: str,
+        encoder_name: str,
+        in_channels: int,
+        out_classes: int,
+        learning_rate: float = 1e-3,
+        **kwargs: Any,
+    ) -> None:
+        """Initialise the segmentation model.
+
+        Args:
+            arch: Architecture name accepted by ``smp.create_model``
+                (e.g. ``"unet"``, ``"fpn"``, ``"deeplabv3+"``).
+            encoder_name: Backbone encoder name accepted by
+                *segmentation_models_pytorch*
+                (e.g. ``"resnet34"``, ``"efficientnet-b0"``).
+            in_channels: Number of input channels (e.g. ``3`` for RGB).
+            out_classes: Number of output segmentation classes.  Use ``1``
+                for binary segmentation.
+            learning_rate: Learning rate for the Adam optimiser.
+            **kwargs: Additional keyword arguments forwarded to
+                ``smp.create_model`` (e.g. ``encoder_weights``).
+        """
         super().__init__()
-        self.save_hyperparameters(
-            ignore=["arch", "encoder_name", "in_channels", "out_classes"]
-        )
+        self.save_hyperparameters()
+
         self.model = smp.create_model(
             arch,
             encoder_name=encoder_name,
@@ -16,130 +93,261 @@ class SegmentationModels(pl.LightningModule):
             classes=out_classes,
             **kwargs,
         )
-        self.validation_step_outputs = []
-        self.training_step_outputs = []
+        self.loss_fn = smp.losses.DiceLoss(
+            smp.losses.BINARY_MODE, from_logits=True
+        )
 
-    def forward(self, x):
+        self._training_step_outputs: list[dict[str, Tensor]] = []
+        self._validation_step_outputs: list[dict[str, Tensor]] = []
+
+    # ------------------------------------------------------------------
+    # Forward
+    # ------------------------------------------------------------------
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Run the forward pass through the encoder-decoder network.
+
+        Args:
+            x: Input image batch of shape ``(B, C, H, W)``.
+
+        Returns:
+            Raw logits of shape ``(B, out_classes, H, W)``.
+        """
         return self.model(x)
 
-    def compute_loss(self, outputs, targets):
-        outputs = outputs.squeeze(
-            1
-        )  # Remove the channel dimension, as it's single channel
-        targets = targets.squeeze(
-            1
-        )  # Remove the channel dimension, as it's single channel
-        loss_fn = smp.losses.DiceLoss(smp.losses.BINARY_MODE, from_logits=True)
-        return loss_fn(outputs, targets)
+    # ------------------------------------------------------------------
+    # Loss & metrics
+    # ------------------------------------------------------------------
 
-    def shared_step(self, batch, stage):
-        image, mask = batch
+    def _compute_loss(self, logits: Tensor, targets: Tensor) -> Tensor:
+        """Compute Dice loss between predictions and ground-truth masks.
 
-        # Shape of the image should be (batch_size, num_channels, height, width)
-        # if you work with grayscale images, expand channels dim to have [batch_size, 1, height, width]
-        assert image.ndim == 4
+        Both tensors are squeezed along ``dim=1`` to collapse the
+        single-class channel before being passed to the loss function.
 
-        # Check that image dimensions are divisible by 32,
-        # encoder and decoder connected by `skip connections` and usually encoder have 5 stages of
-        # downsampling by factor 2 (2 ^ 5 = 32); e.g. if we have image with shape 65x65 we will have
-        # following shapes of features in encoder and decoder: 84, 42, 21, 10, 5 -> 5, 10, 20, 40, 80
-        # and we will get an error trying to concat these features
+        Args:
+            logits: Raw model output of shape ``(B, 1, H, W)``.
+            targets: Ground-truth binary mask of shape ``(B, 1, H, W)``.
+
+        Returns:
+            Scalar loss value.
+        """
+        return self.loss_fn(logits.squeeze(1), targets.squeeze(1))
+
+    @staticmethod
+    def _compute_binary_stats(
+        logits: Tensor,
+        targets: Tensor,
+        threshold: float = _DEFAULT_THRESHOLD,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        """Compute confusion-matrix statistics for binary segmentation.
+
+        Logits are converted to probabilities via sigmoid, then binarised
+        using *threshold* before counting true/false positive/negative
+        pixels per image.
+
+        Args:
+            logits: Raw model output of shape ``(B, 1, H, W)``.
+            targets: Ground-truth binary mask of shape ``(B, 1, H, W)``.
+            threshold: Probability cut-off for the positive class.
+
+        Returns:
+            A 4-tuple ``(tp, fp, fn, tn)`` where each element is a
+            ``Tensor`` of shape ``(B, 1)`` containing per-image counts.
+        """
+        pred_mask = (logits.sigmoid() > threshold).long()
+        return smp.metrics.get_stats(pred_mask, targets.long(), mode="binary")
+
+    # ------------------------------------------------------------------
+    # Shared step / epoch-end logic
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _validate_batch(image: Tensor, mask: Tensor) -> None:
+        """Validate tensor shapes before the forward pass.
+
+        Args:
+            image: Image batch tensor.
+            mask: Mask batch tensor.
+
+        Raises:
+            ValueError: If *image* or *mask* are not 4-D, or if the
+                spatial dimensions of *image* are not divisible by
+                :data:`_ENCODER_DOWNSCALE_FACTOR`.
+        """
+        if image.ndim != 4:
+            raise ValueError(f"Expected 4-D image tensor, got {image.ndim}-D")
         h, w = image.shape[2:]
-        assert h % 32 == 0 and w % 32 == 0
+        if h % _ENCODER_DOWNSCALE_FACTOR or w % _ENCODER_DOWNSCALE_FACTOR:
+            raise ValueError(
+                f"Image dimensions ({h}x{w}) must be divisible by "
+                f"{_ENCODER_DOWNSCALE_FACTOR}"
+            )
+        if mask.ndim != 4:
+            raise ValueError(f"Expected 4-D mask tensor, got {mask.ndim}-D")
 
-        assert mask.ndim == 4
+    def _shared_step(
+        self, batch: tuple[Tensor, Tensor], stage: str
+    ) -> dict[str, Tensor]:
+        """Execute a single training or validation step.
 
-        logits_mask = self.forward(image)
+        Performs input validation, a forward pass, loss computation, and
+        confusion-matrix statistics collection.  The step-level loss is
+        logged to the progress bar.
 
-        # Predicted mask contains logits, and loss_fn param `from_logits` is set to True
-        loss = self.compute_loss(logits_mask, mask)
+        Args:
+            batch: A ``(image, mask)`` tuple produced by the dataloader.
+            stage: Logging prefix — typically ``"train"`` or ``"valid"``.
+
+        Returns:
+            A dictionary with keys ``"loss"``, ``"tp"``, ``"fp"``,
+            ``"fn"``, ``"tn"``.
+        """
+        image, mask = batch
+        self._validate_batch(image, mask)
+
+        logits = self(image)
+        loss = self._compute_loss(logits, mask)
         self.log(
             f"{stage}_loss",
             loss,
             on_step=True,
             on_epoch=True,
             prog_bar=True,
-            logger=True,
+            logger=False,
         )
 
-        # Lets compute metrics for some threshold
-        # first convert mask values to probabilities, then
-        # apply thresholding
-        prob_mask = logits_mask.sigmoid()
-        pred_mask = (prob_mask > 0.5).float()
+        tp, fp, fn, tn = self._compute_binary_stats(logits, mask)
+        return {"loss": loss, "tp": tp, "fp": fp, "fn": fn, "tn": tn}
 
-        # We will compute IoU metric by two ways
-        #   1. dataset-wise
-        #   2. image-wise
-        # but for now we just compute true positive, false positive, false negative and
-        # true negative 'pixels' for each image and class
-        # these values will be aggregated in the end of an epoch
-        tp, fp, fn, tn = smp.metrics.get_stats(
-            pred_mask.long(), mask.long(), mode="binary"
-        )
-        return {
-            "loss": loss,
-            "tp": tp,
-            "fp": fp,
-            "fn": fn,
-            "tn": tn,
-        }
+    def _shared_epoch_end(
+        self, outputs: list[dict[str, Tensor]], stage: str
+    ) -> None:
+        """Aggregate step-level outputs and log epoch-level metrics.
 
-    def shared_epoch_end(self, outputs, stage):
-        # aggregate step metics
+        Two IoU variants are computed:
+
+        * **per-image IoU** (``micro-imagewise``): IoU is calculated for
+          each image independently and then averaged.  Sensitive to
+          "empty" images (no foreground pixels).
+        * **dataset IoU** (``micro``): intersection and union are
+          accumulated across the whole dataset before computing IoU.
+          More stable when the dataset contains empty images.
+
+        Args:
+            outputs: List of dictionaries returned by :meth:`_shared_step`
+                over the epoch.
+            stage: Logging prefix — typically ``"train"`` or ``"valid"``.
+        """
         tp = torch.cat([x["tp"] for x in outputs])
         fp = torch.cat([x["fp"] for x in outputs])
         fn = torch.cat([x["fn"] for x in outputs])
         tn = torch.cat([x["tn"] for x in outputs])
 
-        # per image IoU means that we first calculate IoU score for each image
-        # and then compute mean over these scores
         per_image_iou = smp.metrics.iou_score(
             tp, fp, fn, tn, reduction="micro-imagewise"
         )
-        loss = torch.stack([x["loss"] for x in outputs]).mean()
-        self.logger.log_metrics({f"{stage}_loss": loss})
+        dataset_iou = smp.metrics.iou_score(
+            tp, fp, fn, tn, reduction="micro"
+        )
 
-        # dataset IoU means that we aggregate intersection and union over whole dataset
-        # and then compute IoU score. The difference between dataset_iou and per_image_iou scores
-        # in this particular case will not be much, however for dataset
-        # with "empty" images (images without target class) a large gap could be observed.
-        # Empty images influence a lot on per_image_iou and much less on dataset_iou.
-        dataset_iou = smp.metrics.iou_score(tp, fp, fn, tn, reduction="micro")
+        self.log_dict(
+            {
+                f"{stage}_per_image_iou": per_image_iou,
+                f"{stage}_dataset_iou": dataset_iou,
+                f"{stage}_loss": torch.stack([x["loss"] for x in outputs]).mean(),
+            },
+            prog_bar=True,
+            logger=False,
+        )
 
-        metrics = {
-            f"{stage}_per_image_iou": per_image_iou,
-            f"{stage}_dataset_iou": dataset_iou,
-            f"{stage}_loss": loss,
-        }
+    # ------------------------------------------------------------------
+    # Training
+    # ------------------------------------------------------------------
 
-        self.log_dict(metrics, prog_bar=True)
+    def training_step(
+        self, batch: tuple[Tensor, Tensor], batch_idx: int
+    ) -> dict[str, Tensor]:
+        """Process a single training batch.
 
-    def training_step(self, batch, batch_idx):
-        train_loss_info = self.shared_step(batch, "train")
-        # append the metics of each step to the
-        self.training_step_outputs.append(train_loss_info)
-        return train_loss_info
+        The step output is cached in :attr:`_training_step_outputs` so
+        that metrics can be aggregated at the end of the epoch by
+        :meth:`on_train_epoch_end`.
 
-    def on_train_epoch_end(self):
-        self.shared_epoch_end(self.training_step_outputs, "train")
-        # empty set output list
-        self.training_step_outputs.clear()
-        return
+        Args:
+            batch: A ``(image, mask)`` tuple from the training dataloader.
+            batch_idx: Index of the current batch (unused, required by
+                Lightning).
 
-    def validation_step(self, batch, batch_idx):
-        valid_loss_info = self.shared_step(batch, "valid")
-        self.validation_step_outputs.append(valid_loss_info)
-        return valid_loss_info
+        Returns:
+            The dictionary produced by :meth:`_shared_step`.
+        """
+        step_output = self._shared_step(batch, "train")
+        self._training_step_outputs.append(step_output)
+        return step_output
 
-    def on_validation_epoch_end(self):
-        self.shared_epoch_end(self.validation_step_outputs, "valid")
-        self.validation_step_outputs.clear()
-        return
+    def on_train_epoch_end(self) -> None:
+        """Aggregate training metrics and clear the step-output buffer.
 
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=2e-4)
+        Called automatically by Lightning at the end of each training
+        epoch.  Delegates to :meth:`_shared_epoch_end` and then releases
+        the accumulated step outputs to free memory.
+        """
+        self._shared_epoch_end(self._training_step_outputs, "train")
+        self._training_step_outputs.clear()
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validation_step(
+        self, batch: tuple[Tensor, Tensor], batch_idx: int
+    ) -> dict[str, Tensor]:
+        """Process a single validation batch.
+
+        Mirrors :meth:`training_step` but uses the ``"valid"`` logging
+        prefix and caches outputs in :attr:`_validation_step_outputs`.
+
+        Args:
+            batch: A ``(image, mask)`` tuple from the validation
+                dataloader.
+            batch_idx: Index of the current batch (unused, required by
+                Lightning).
+
+        Returns:
+            The dictionary produced by :meth:`_shared_step`.
+        """
+        step_output = self._shared_step(batch, "valid")
+        self._validation_step_outputs.append(step_output)
+        return step_output
+
+    def on_validation_epoch_end(self) -> None:
+        """Aggregate validation metrics and clear the step-output buffer.
+
+        Called automatically by Lightning at the end of each validation
+        epoch.  Delegates to :meth:`_shared_epoch_end` and then releases
+        the accumulated step outputs to free memory.
+        """
+        self._shared_epoch_end(self._validation_step_outputs, "valid")
+        self._validation_step_outputs.clear()
+
+    # ------------------------------------------------------------------
+    # Optimizer
+    # ------------------------------------------------------------------
+
+    def configure_optimizers(self) -> dict[str, Any]:
+        """Configure the Adam optimiser.
+
+        The learning rate is read from ``self.hparams.learning_rate``,
+        which is set at construction time and persisted in checkpoints.
+
+        Returns:
+            A dictionary with key ``"optimizer"`` mapping to a
+            :class:`torch.optim.Adam` instance, conforming to the
+            Lightning optimiser configuration protocol.
+        """
         return {
-            "optimizer": optimizer,
+            "optimizer": torch.optim.Adam(
+                self.parameters(), lr=self.hparams.learning_rate
+            ),
         }
-        return

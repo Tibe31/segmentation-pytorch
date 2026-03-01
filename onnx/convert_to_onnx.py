@@ -7,7 +7,7 @@ import yaml
 # Add the parent directory to Python path to import src module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.segmentation.models.unet import SegmentationModels
+from src.segmentation.models.unet import SegmentationModel
 from src.segmentation.utils.dataset_utils import load_config
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -36,7 +36,7 @@ ckpt_path = os.path.join(project_root, config['inference']['model_path'])
 """
 Loads the PyTorch Lightning model from checkpoint and extracts the pure torch.nn.Module for ONNX export.
 """
-lightning_model = SegmentationModels.load_from_checkpoint(
+lightning_model = SegmentationModel.load_from_checkpoint(
     ckpt_path,
     arch=ARCH,
     encoder_name=ENCODER,
