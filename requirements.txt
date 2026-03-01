@@ -45,9 +45,10 @@ six==1.17.0
 stringzilla==3.12.6
 sympy==1.14.0
 timm==1.0.19
-torch==2.8.0
+torch==2.7.1+cu118
+torchaudio==2.7.1+cu118
 torchmetrics==1.8.1
-torchvision==0.23.0
+torchvision==0.22.1+cu118
 tqdm==4.67.1
 typing-inspection==0.4.1
 typing_extensions==4.14.1
