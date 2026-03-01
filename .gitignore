@@ -1,8 +1,36 @@
-notebook/training/dataset_creation/*
-notebook/training/lightning_logs/*
-src/__pycache__/*
-src/datamodule/__pycache__/*
-src/dataset/__pycache__/*
-src/model/__pycache__/*
-dataset_creation/*
-onnx/onnx_outputs/*
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Training artifacts
+lightning_logs/
+checkpoints/
+*.ckpt
+
+# Model exports
+*.onnx
+onnx/onnx_outputs/
+
+# Dataset (raw images, masks, splits)
+raw_dataset/
+dataset_creation/
+1870_images_test_seg/
+
+# Outputs
+output_*/
+
+# Personal / non-project files
+presentazione.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
