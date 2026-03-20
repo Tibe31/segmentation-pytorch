@@ -42,7 +42,6 @@ lightning_model = SegmentationModel.load_from_checkpoint(
     encoder_name=ENCODER,
     in_channels=IN_CHANNELS,
     out_classes=1,
-    activation="sigmoid"
 )
 lightning_model.eval()
 

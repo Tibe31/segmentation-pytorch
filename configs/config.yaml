@@ -106,6 +106,8 @@ inference:
   model_path: checkpoints/best_model.ckpt
   input_images_dir: path/to/your/test/images   # Update with your images path
   outputs_dir: outputs                          # Directory to save predictions
+  threshold: 0.5
+  resize_strategy: resize_then_threshold        # resize_then_threshold | threshold_then_resize
 
 # Miscellaneous
 show_augmentation_samples: true 

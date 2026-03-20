@@ -1,8 +1,11 @@
 import os
-from torchvision import transforms
-from torch.utils.data import Dataset
+
 import numpy as np
+import torch
 from PIL import Image
+from torch.utils.data import Dataset
+from torchvision import transforms
+from torchvision.transforms import InterpolationMode
 
 
 class SegmentationDataset(Dataset):
@@ -28,13 +31,13 @@ class SegmentationDataset(Dataset):
                 transforms.Normalize(
                     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
                 ),
-                transforms.Resize(self.size),
+                transforms.Resize(self.size, interpolation=InterpolationMode.BILINEAR),
             ]
         )
         self.mask_transform = transforms.Compose(
             [
                 transforms.ToTensor(),
-                transforms.Resize(self.size),
+                transforms.Resize(self.size, interpolation=InterpolationMode.NEAREST),
             ]
         )
         self.add_transform = transform
@@ -73,4 +76,5 @@ class SegmentationDataset(Dataset):
         if self.image_transform:
             image = self.image_transform(image)
             mask = self.mask_transform(mask)
+            mask = (mask > 0.5).to(dtype=torch.float32)
         return image, mask

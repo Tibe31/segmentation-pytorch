@@ -7,7 +7,6 @@ if project_root not in sys.path:
 
 import torch
 from torchvision import transforms
-import torch.nn.functional as F
 import time
 import os
 import glob
@@ -15,6 +14,7 @@ from PIL import Image
 import numpy as np
 import argparse
 from src.segmentation.utils.utils import load_torch_model
+from src.segmentation.utils.postprocessing import postprocess_binary_mask
 import yaml
 
 def get_config_path(args_config):
@@ -23,15 +23,26 @@ def get_config_path(args_config):
     # If relative, resolve with respect to project root
     return os.path.abspath(os.path.join(os.path.dirname(__file__), '..', args_config))
 
-def run_inference(chunks, batch_size, model, resize_size):
+def run_inference(
+    chunks,
+    batch_size,
+    model,
+    resize_size,
+    threshold=0.5,
+    resize_strategy="resize_then_threshold",
+):
     """
     Run inference on a list of images (chunks) using the given model.
-    Applies preprocessing (ToTensor, Normalize, Resize) and postprocessing (sigmoid, threshold, resize).
+    Applies preprocessing (ToTensor, Normalize, Resize) and postprocessing.
     Args:
         chunks (list of np.ndarray): List of images as numpy arrays.
         batch_size (int): Batch size for inference.
         model (torch.nn.Module): The segmentation model.
-        resize_size (tuple): (height, width) for resizing images and outputs.
+        resize_size (tuple): (height, width) for model input resizing.
+        threshold (float): Probability threshold for the positive class.
+        resize_strategy (str): Postprocessing strategy. Use
+            ``resize_then_threshold`` for smoother contours or
+            ``threshold_then_resize`` for stair-step edges.
     Returns:
         list of np.ndarray: List of binary masks (0/1) for each input image.
     """
@@ -48,28 +59,36 @@ def run_inference(chunks, batch_size, model, resize_size):
     model = model.to(device)
     for i in range(0, len(chunks), batch_size):
         batch = chunks[i : i + batch_size]
+        original_sizes = [image.shape[:2] for image in batch]
         if transform:
             batch_tensor = torch.stack([transform(image) for image in batch])
         with torch.no_grad():
             output = model(batch_tensor.to(device))
-        output = output.sigmoid()
-        if len(output.shape) == 4:
-            output_binary = output[:, 0].cpu().numpy()
-        elif len(output.shape) == 3:
-            output_binary = output.cpu().numpy()
-        else:
+        if len(output.shape) != 4:
             print(f"Unexpected output shape: {output.shape}")
             continue
-        output_binary[output_binary > 0.5] = 1
-        output_binary[output_binary <= 0.5] = 0
-        if len(output_binary.shape) == 3 and output_binary.shape[0] == 1:
-            output_binary = output_binary[0]
-        outputs.append(output_binary)
+        for sample_output, output_size in zip(output, original_sizes):
+            binary_mask = postprocess_binary_mask(
+                predictions=sample_output.unsqueeze(0),
+                output_size=output_size,
+                threshold=threshold,
+                resize_strategy=resize_strategy,
+                from_logits=True,
+            )
+            outputs.append(binary_mask[0, 0].cpu().numpy().astype(np.uint8))
     end = time.time()
     print("Inference time {}".format(end - start))
     return outputs
 
-def predict_folder(model, images_path, outputs_path, resize_size, batch_size=1):
+def predict_folder(
+    model,
+    images_path,
+    outputs_path,
+    resize_size,
+    batch_size=1,
+    threshold=0.5,
+    resize_strategy="resize_then_threshold",
+):
     """
     Run inference on all PNG images in a folder and save the predicted masks.
     Args:
@@ -86,7 +105,14 @@ def predict_folder(model, images_path, outputs_path, resize_size, batch_size=1):
         try:
             image = Image.open(image_path).convert("RGB")
             image = np.array(image)
-            outputs = run_inference([image], batch_size, model, resize_size)
+            outputs = run_inference(
+                [image],
+                batch_size,
+                model,
+                resize_size,
+                threshold=threshold,
+                resize_strategy=resize_strategy,
+            )
             output_binary = outputs[0]
             base_name = os.path.splitext(os.path.basename(image_path))[0]
             output_filename = os.path.join(outputs_path, f"{base_name}_prediction.png")
@@ -96,7 +122,14 @@ def predict_folder(model, images_path, outputs_path, resize_size, batch_size=1):
         except Exception as e:
             print(f"Error processing {image_path}: {e}")
 
-def predict_single(model, image_path, outputs_path, resize_size):
+def predict_single(
+    model,
+    image_path,
+    outputs_path,
+    resize_size,
+    threshold=0.5,
+    resize_strategy="resize_then_threshold",
+):
     """
     Run inference on a single image and save the predicted mask.
     Args:
@@ -109,7 +142,14 @@ def predict_single(model, image_path, outputs_path, resize_size):
     try:
         image = Image.open(image_path).convert("RGB")
         image = np.array(image)
-        outputs = run_inference([image], batch_size=1, model=model, resize_size=resize_size)
+        outputs = run_inference(
+            [image],
+            batch_size=1,
+            model=model,
+            resize_size=resize_size,
+            threshold=threshold,
+            resize_strategy=resize_strategy,
+        )
         output_binary = outputs[0]
         base_name = os.path.splitext(os.path.basename(image_path))[0]
         output_filename = os.path.join(outputs_path, f"{base_name}_prediction.png")
@@ -134,13 +174,30 @@ if __name__ == "__main__":
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     resize_size = tuple(config['model']['input_size'])
+    inference_cfg = config.get('inference', {})
+    threshold = inference_cfg.get('threshold', 0.5)
+    resize_strategy = inference_cfg.get('resize_strategy', 'resize_then_threshold')
 
     model, images_path, outputs_path = load_torch_model(config_path)
 
     if args.mode == 'batch':
-        predict_folder(model, images_path, outputs_path, resize_size)
+        predict_folder(
+            model,
+            images_path,
+            outputs_path,
+            resize_size,
+            threshold=threshold,
+            resize_strategy=resize_strategy,
+        )
     elif args.mode == 'single':
         if not args.image:
             print("Error: --image is required in single mode")
         else:
-            predict_single(model, args.image, outputs_path, resize_size) 
+            predict_single(
+                model,
+                args.image,
+                outputs_path,
+                resize_size,
+                threshold=threshold,
+                resize_strategy=resize_strategy,
+            )

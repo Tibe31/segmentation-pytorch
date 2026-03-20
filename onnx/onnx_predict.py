@@ -4,10 +4,11 @@ from PIL import Image
 import numpy as np
 import onnxruntime
 import torch
-import torch.nn.functional as F
 from torchvision import transforms
 import yaml
 import argparse
+
+from src.segmentation.utils.postprocessing import postprocess_binary_mask
 
 def preprocess_image(image_path, resize_size):
     """
@@ -35,44 +36,65 @@ def preprocess_image(image_path, resize_size):
     tensor = transform(image).unsqueeze(0)  # [1, C, H, W]
     return tensor.numpy()
 
-def postprocess_output(output, resize_size):
+def postprocess_output(
+    output,
+    output_size,
+    threshold=0.5,
+    resize_strategy="resize_then_threshold",
+):
     """
     Postprocess ONNX model output to obtain a binary mask image.
     Steps:
-      - (Optional) Sigmoid activation (if not present in model)
-      - Interpolate output to resize_size
-      - Threshold at 0.5 and convert to uint8 mask
+      - Resize probabilities then threshold, or threshold then resize
+        depending on the configured strategy
     Args:
         output (np.ndarray): Raw ONNX model output
-        resize_size (tuple): (height, width) for resizing
+        output_size (tuple): (height, width) for the final mask
+        threshold (float): Probability threshold for the positive class
+        resize_strategy (str): Postprocessing strategy
     Returns:
         PIL.Image: Binary mask image
     """
-    pred = output[0][0]  # [C, H, W]
-    pred_tensor = torch.from_numpy(pred).unsqueeze(0).float()  # [1, C, H, W]
-    pred_interp = F.interpolate(
-        pred_tensor,
-        size=resize_size,
-        mode="bilinear",
-        align_corners=False
-    ).squeeze(0).numpy()  # [C, H, W]
-    mask = (pred_interp > 0.5).astype(np.uint8) * 255
-    mask_img = Image.fromarray(mask[0])  # channel 0
+    pred_tensor = torch.from_numpy(output[0]).float()
+    binary_mask = postprocess_binary_mask(
+        predictions=pred_tensor,
+        output_size=output_size,
+        threshold=threshold,
+        resize_strategy=resize_strategy,
+        from_logits=True,
+    )
+    mask = (binary_mask[0, 0].numpy() * 255).astype(np.uint8)
+    mask_img = Image.fromarray(mask)
     return mask_img
 
-def run_onnx_inference(image_path, ort_session, output_dir, resize_size):
+def run_onnx_inference(
+    image_path,
+    ort_session,
+    output_dir,
+    resize_size,
+    threshold=0.5,
+    resize_strategy="resize_then_threshold",
+):
     """
     Run ONNX inference on a single image and save the predicted mask.
     Args:
         image_path (str): Path to the input image
         ort_session (onnxruntime.InferenceSession): ONNX session
         output_dir (str): Directory to save the output mask
-        resize_size (tuple): (height, width) for resizing
+        resize_size (tuple): (height, width) for model input resizing
+        threshold (float): Probability threshold for the positive class
+        resize_strategy (str): Postprocessing strategy
     """
+    original_size = Image.open(image_path).size[::-1]
     input_tensor = preprocess_image(image_path, resize_size)
     ort_inputs = {"input": input_tensor}
     ort_outputs = ort_session.run(None, ort_inputs)
-    mask = postprocess_output(ort_outputs, resize_size)
+    mask = postprocess_output(
+        ort_outputs,
+        original_size,
+        threshold=threshold,
+        resize_strategy=resize_strategy,
+    )
     base_name = os.path.splitext(os.path.basename(image_path))[0]
     output_path = os.path.join(output_dir, f"{base_name}_onnx_prediction.png")
     mask.save(output_path)
@@ -93,9 +115,12 @@ if __name__ == "__main__":
     with open(args.config, 'r') as f:
         config = yaml.safe_load(f)
     resize_size = tuple(config['model']['input_size'])
+    inference_cfg = config.get('inference', {})
     images_dir = args.images_dir or config['inference']['input_images_dir']
     outputs_dir = args.outputs_dir
     onnx_model_path = args.onnx_model
+    threshold = inference_cfg.get('threshold', 0.5)
+    resize_strategy = inference_cfg.get('resize_strategy', 'resize_then_threshold')
 
     os.makedirs(outputs_dir, exist_ok=True)
     ort_session = onnxruntime.InferenceSession(
@@ -105,4 +130,11 @@ if __name__ == "__main__":
     image_files = glob.glob(os.path.join(images_dir, "*.png"))
     print(f"Found {len(image_files)} images in '{images_dir}'")
     for img_path in image_files:
-        run_onnx_inference(img_path, ort_session, outputs_dir, resize_size)
+        run_onnx_inference(
+            img_path,
+            ort_session,
+            outputs_dir,
+            resize_size,
+            threshold=threshold,
+            resize_strategy=resize_strategy,
+        )
