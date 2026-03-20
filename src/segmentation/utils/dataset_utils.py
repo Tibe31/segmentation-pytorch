@@ -8,6 +8,22 @@ import numpy as np
 Utility functions for dataset splitting and config loading.
 """
 
+
+def _resolve_project_path(path: str) -> str:
+    """Resolve config paths relative to the project root.
+
+    Args:
+        path: Absolute or project-relative path from the config.
+
+    Returns:
+        Absolute path anchored at the repository root.
+    """
+    if os.path.isabs(path):
+        return path
+
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+    return os.path.abspath(os.path.join(project_root, path))
+
 def show_augmentation_samples(data_module):
     """
     Display a few samples of augmented images and their corresponding masks.
@@ -80,9 +96,9 @@ def split_dataset(config, ext='.png', seed=42):
         ext (str): File extension to filter images (default: '.png')
         seed (int): Random seed for reproducibility
     """
-    images_dir = config['data']['images_dir']
-    masks_dir = config['data']['masks_dir']
-    split_dir = config['data']['splits_dir']
+    images_dir = _resolve_project_path(config['data']['images_dir'])
+    masks_dir = _resolve_project_path(config['data']['masks_dir'])
+    split_dir = _resolve_project_path(config['data']['splits_dir'])
 
     split_config = config.get('split_ratios', {
         'train': 0.7,
@@ -92,6 +108,20 @@ def split_dataset(config, ext='.png', seed=42):
     train_ratio = split_config.get('train', 0.7)
     val_ratio = split_config.get('val', 0.15)
     test_ratio = split_config.get('test', 0.15)
+
+    required_split_dirs = [
+        os.path.join(split_dir, split, subdir)
+        for split in ('train', 'val', 'test')
+        for subdir in ('images', 'masks')
+    ]
+    if all(os.path.isdir(path) and os.listdir(path) for path in required_split_dirs):
+        print(f"Split folders already populated in {split_dir}. Skipping split.")
+        return
+
+    if not os.path.isdir(images_dir):
+        raise FileNotFoundError(f"Images directory not found: {images_dir}")
+    if not os.path.isdir(masks_dir):
+        raise FileNotFoundError(f"Masks directory not found: {masks_dir}")
 
     # Gather and shuffle all image files
     all_files = [f for f in os.listdir(images_dir) if f.endswith(ext)]

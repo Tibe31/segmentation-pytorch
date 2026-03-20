@@ -27,15 +27,22 @@ segmentation-pytorch/
 
 ## Installation
 
-Requires Python 3.9+.
+Requires Python 3.11 or 3.12.
+
+Python 3.14 is not currently supported by this repository because some pinned dependencies do not reliably provide prebuilt wheels for it on Windows.
 
 ```bash
 git clone <repo-url>
 cd segmentation-pytorch
+py -3.11 -m venv .venv
+.venv\Scripts\activate
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-The `requirements.txt` ships with PyTorch built for **CUDA 11.8**. If you need a different CUDA version or CPU-only, install PyTorch manually first following the [official instructions](https://pytorch.org/get-started/locally/) and then install the remaining dependencies.
+`requirements.txt` is configured to install PyTorch wheels for **CUDA 11.8** directly from the official PyTorch package index, so `pip install -r requirements.txt` is enough on a compatible machine.
+
+If you need CPU-only PyTorch or a different CUDA version, update the first line of [`requirements.txt`](/C:/Users/Andrea/Documents/Develop/Mio/segmentation-pytorch/requirements.txt) and the pinned `torch` / `torchvision` / `torchaudio` versions accordingly.
 
 ## Configuration
 

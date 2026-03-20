@@ -5,24 +5,21 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-import yaml
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from src.segmentation.models.unet import SegmentationModel
 from src.segmentation.data.datamodule import SegmentationDataModule
-from src.segmentation.utils.dataset_utils import split_dataset, load_config, show_augmentation_samples
+from src.segmentation.utils.dataset_utils import (
+    split_dataset,
+    load_config,
+    show_augmentation_samples,
+)
 
-def load_config(config_path):
-    """
-    Load a YAML configuration file.
-    Args:
-        config_path (str): Path to the YAML config file.
-    Returns:
-        dict: Parsed configuration dictionary.
-    """
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+def resolve_project_path(path):
+    """Resolve config paths relative to the project root."""
+    if os.path.isabs(path):
+        return path
+    return os.path.abspath(os.path.join(project_root, path))
 
 def main():
     """
@@ -35,7 +32,7 @@ def main():
     config = load_config(config_path)
 
     # --- Check if dataset is already split, otherwise perform split ---
-    splits_dir = config['data']['splits_dir']
+    splits_dir = resolve_project_path(config['data']['splits_dir'])
     # Check for train/val/test folders with images/ and masks/
     required_folders = [
         os.path.join(splits_dir, split, sub)
