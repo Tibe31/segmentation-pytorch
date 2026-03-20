@@ -89,6 +89,22 @@ output:
   mode: min
 ```
 
+### Inference
+
+```yaml
+inference:
+  model_path: checkpoints/best_model.ckpt
+  input_images_dir: path/to/your/test/images
+  outputs_dir: outputs
+  threshold: 0.5
+  resize_strategy: resize_then_threshold
+```
+
+`resize_strategy` controls how the final binary mask is produced:
+
+- `resize_then_threshold`: resizes probabilities first and thresholds afterwards. This is the recommended default because it minimizes stair-step artifacts on mask borders.
+- `threshold_then_resize`: thresholds at model resolution first and then upsamples the binary mask with nearest-neighbour. This intentionally produces more pixelated edges.
+
 ### Augmentation
 
 The augmentation pipeline is defined declaratively in the config using [Albumentations](https://albumentations.ai/) transform names. Transforms are applied in order; `OneOf` and nested `Compose` blocks are supported.
@@ -154,7 +170,9 @@ The ratios and paths are read from `config.yaml`.
 python scripts/train.py
 ```
 
-The script loads the config, splits the dataset if needed, optionally shows augmentation samples, and starts training. The best checkpoint is saved according to the `output` section of the config.
+The script reads `configs/config.yaml`, splits the dataset if needed, optionally shows augmentation samples, and starts training. The best checkpoint is saved according to the `output` section of the config.
+
+Ground-truth masks are resized with nearest-neighbour interpolation to preserve binary labels during training. If a checkpoint was trained before this fix, retraining is recommended to get the full benefit.
 
 ## ONNX Export
 
@@ -180,6 +198,8 @@ python scripts/predict.py --mode single --image "path/to/image.png"
 
 Both modes read `inference.model_path`, `inference.input_images_dir`, and `inference.outputs_dir` from the config. You can override the config path with `--config path/to/other_config.yaml`.
 
+PyTorch inference restores the prediction to the original image size before saving. The final mask behavior is controlled by `inference.threshold` and `inference.resize_strategy`.
+
 ### ONNX
 
 ```bash
@@ -194,6 +214,8 @@ Optional arguments:
 | `--onnx_model` | `unet_resnet34.onnx`     | Path to the `.onnx` model       |
 | `--images_dir` | from config              | Override input images directory |
 | `--outputs_dir`| `./onnx_outputs`         | Output directory                |
+
+ONNX inference uses the same post-processing logic as PyTorch inference and writes masks at the original image resolution.
 
 ## Notes
 
